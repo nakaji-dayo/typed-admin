@@ -1,0 +1,10 @@
+id: ID
+name: Name
+image: Images
+detail: view detail
+addr: Address
+BeerSummary:
+  .: Beer List
+  name: Beer Name
+Store:
+  name: Store Name
