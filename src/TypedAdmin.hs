@@ -201,9 +201,12 @@ handleEditConsole nt req res path layout _ _ ctx rid = do
     mr <- detailForEdit (Proxy :: Proxy b) rid :: m (Maybe a)
     case mr of
       Just r ->
-        renderBST $ (fromMaybe defaultLayout layout) (renderEditHtml r (Proxy :: Proxy b) rid path)
-  res $
-    responseLBS status200 [contentType] body
+        fmap Just $ renderBST $ (fromMaybe defaultLayout layout) (renderEditHtml r (Proxy :: Proxy b) rid path)
+      Nothing -> pure Nothing
+  case body of
+    Just b ->
+      res $ responseLBS status200 [contentType] b
+    Nothing -> res400 res (LBS.fromString "not found")
 
 handleEdit :: forall proxy1 proxy2 a b z m. (EditConsole m a b)
   => (forall x. m x -> Handler x)

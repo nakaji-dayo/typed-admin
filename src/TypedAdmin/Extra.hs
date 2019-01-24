@@ -41,7 +41,7 @@ instance Monad m => FormField m (HiddenField String) where
   fromFormField ps k = pure $ fmap HiddenField $ memptyToNothing =<< BS.toString <$> join (lookup k ps)
 
 instance Monad m => FormField m (HiddenField Int64) where
-  toFormField n x = input_ [type_ "text", name_ n, value_ (pack $ fromMaybe "" $ show . unHiddenField <$> x)]
+  toFormField n x = input_ [type_ "hidden", name_ n, value_ (pack $ fromMaybe "" $ show . unHiddenField <$> x)]
   fromFormField ps k = pure $ fmap HiddenField $ lookupMaybe k ps
 
 data Anchor a = Anchor a Text
@@ -82,9 +82,9 @@ instance Default GeoLocation
 instance (Monad m, GoogleApiEnv m) => FormField m GeoLocation where
   toFormField n v = do
     let vlat = maybe "" (pack . show . lat) v
-    input_ [type_ "text", id_ "locationLat", name_ (n <> "lat"), value_ vlat]
+    input_ [type_ "hidden", id_ "locationLat", name_ (n <> "lat"), value_ vlat]
     let vlon = maybe "" (pack . show . lon) v
-    input_ [type_ "text", id_ "locationLon", name_ (n <> "lon"), value_ vlon]
+    input_ [type_ "hidden", id_ "locationLon", name_ (n <> "lon"), value_ vlon]
     div_ [id_ "map", style_ "height: 400px;"] ""
     script_ (decodeUtf8 $ toStrict $ renderMarkup $(compileTextFile "templates/javascript/map.js"))
     key <- lift $ getKey
@@ -94,3 +94,8 @@ instance (Monad m, GoogleApiEnv m) => FormField m GeoLocation where
     lat <- fromFormField ps (k <> "lat")
     lon <- fromFormField ps (k <> "lon")
     return $ GeoLocation <$> lat <*> lon
+
+-- newtype JSTTime = JSTTime { unJSTTime :: UTCTime }
+
+-- instance ToDetailField JSTTime where
+--   toDetailField x = span_ [] (toHtml ( x))

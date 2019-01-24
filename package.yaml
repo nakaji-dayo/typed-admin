@@ -1,7 +1,9 @@
 name:                typed-admin
 version:             0.1.0.0
+synopsis:            Admin console framework
 github:              "nakaji-dayo/typed-admin"
 license:             BSD3
+category:            Web
 author:              "Daishi Nakajima"
 maintainer:          "nakaji.dayo@gmail.com"
 copyright:           "2018 Daishi Nakajima"
