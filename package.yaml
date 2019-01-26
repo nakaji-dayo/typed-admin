@@ -1,7 +1,9 @@
 name:                typed-admin
 version:             0.1.0.0
+synopsis:            Admin console framework
 github:              "nakaji-dayo/typed-admin"
 license:             BSD3
+category:            Web
 author:              "Daishi Nakajima"
 maintainer:          "nakaji.dayo@gmail.com"
 copyright:           "2018 Daishi Nakajima"
@@ -25,13 +27,6 @@ dependencies:
 - wai
 - warp
 - wai-extra
-- relational-record
-- relational-query
-- relational-query-HDBC
-- persistable-record
-- HDBC
-- HDBC-postgresql
-- HDBC-session
 - template-haskell
 - http-types
 - lucid
@@ -58,7 +53,7 @@ library:
 executables:
   typed-admin-exe:
     main:                Main.hs
-    source-dirs:         app
+    source-dirs:         example
     ghc-options:
     - -threaded
     - -rtsopts
@@ -67,6 +62,13 @@ executables:
     - typed-admin
     - lens
     - generic-lens >= 1.1.0.0
+    - relational-record
+    - relational-query
+    - relational-query-HDBC
+    - persistable-record
+    - HDBC
+    - HDBC-postgresql
+    - HDBC-session
     when:
     - condition: ! '!(flag(example))'
       buildable: false

@@ -74,6 +74,7 @@ newtype Handler a = Handler
 -- class ToName a where
 --   toName :: proxy a -> Text
 
+-- 廃止できないか？(ToDetailでカバー?)
 class HasHeader a where
   hasHeader :: (Monad m, MonadState Context m) => proxy a -> [HtmlT m ()]
   default hasHeader:: (Monad m, MonadState Context m, Generic a, GHasHeader (Rep a)) => proxy a -> [HtmlT m ()]
@@ -85,22 +86,22 @@ class GHasHeader (f :: * -> *) where
 class ToDetailField a where
   toDetailField :: Monad m => a -> HtmlT m ()
 
-class MonadIO m => ToDetail m f where
-  toDetail :: f -> m [(Text, HtmlT m ())]
-  default toDetail :: (Generic f, GToDetail (Rep f)) => f -> m [(Text, HtmlT m ())]
+class MonadIO m => ToDetail m a where
+  toDetail :: a -> m [(Text, HtmlT m ())]
+  default toDetail :: (Generic a, GToDetail (Rep a)) => a -> m [(Text, HtmlT m ())]
   toDetail x = do
     gToDetail (from x)
     -- case linkDetail x of
     --   Just p ->
     --     td_ [] $ a_ [href_ p] "detail"
     --   Nothing -> return ()
-  linkDetail :: f -> m (Maybe PathText)
+  linkDetail :: a -> m (Maybe PathText)
   linkDetail _ = return Nothing
-  linkEdit :: f -> m (Maybe PathText)
+  linkEdit :: a -> m (Maybe PathText)
   linkEdit _ = return Nothing
-  detailTitle :: proxy f -> m Text
-  default detailTitle :: (Generic f, GToDetail (Rep f)) => proxy f -> m Text
-  detailTitle x = gDetailTitle (Proxy :: Proxy (Rep f))
+  detailTitle :: proxy a -> m Text
+  default detailTitle :: (Generic a, GToDetail (Rep a)) => proxy a -> m Text
+  detailTitle x = gDetailTitle (Proxy :: Proxy (Rep a))
 
 class GToDetail (f :: * -> *) where
   gToDetail :: (MonadIO m, Monad m2) => f a -> m [(Text, HtmlT m2 ())]
@@ -131,7 +132,7 @@ class (HasHeader a, ToDetail m a, ToForm m b) => ListConsole m a b where
   listSublayout _ _ x = x
 -- todo wrap a
 
-class (ToDetail m a, Read (Ident a)) => DetailConsole m a where
+class (ToDetail m a) => DetailConsole m a where
   type Ident a
   detail :: Ident a -> m (Maybe a)
   detailSublayout :: a -> HtmlT m () -> HtmlT m ()
@@ -156,7 +157,7 @@ class (ToDetail m a, ToForm m b, Subtype b a) => CreateConsole m a b where
   createSublayout :: proxy b -> a -> HtmlT m () -> HtmlT m ()
   createSublayout _ _ x = x
 
-class (ToDetail m a, ToForm m b, Read (EditIdent a b), Subtype b a) => EditConsole m a b where
+class (ToDetail m a, ToForm m b, Subtype b a) => EditConsole m a b where
   type EditIdent a b
   edit :: proxy a -> EditIdent a b -> b -> m () -- todo: use AllowAmbiguousTypes and TypeApplication?
   -- editPath :: proxy a -> proxy b -> EditIdent a b -> m (PathText, PathText)

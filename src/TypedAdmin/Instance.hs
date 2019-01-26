@@ -321,7 +321,7 @@ renderListHtml xs p (path, param, query) (page, total) = do
           dt_ [] "action"
           dd_ [] $ do
             lblSearch <- toLocal "search"
-            input_ [type_ "submit", value_ lblSearch]
+            input_ [type_ "submit", value_ lblSearch, class_ "mdc-button"]
       table_ [] $ do
         thead_ [] $
           tr_ $ mapM_ th_ hs
@@ -443,7 +443,8 @@ renderDeleteHtml ident x (path, param) = do
   let pathText = toText $ renderPath path param
   form_ [method_ "POST", action_ pathText] $ do
     forM_ form snd
-    input_ [type_ "submit"]
+    lblSubmit <- toLocal "delete"
+    input_ [type_ "submit", value_ lblSubmit]
 
 -- instance (ToHtml c) => GToEditForm (K1 i c) where
 --   gToEditForm (K1 x) = do

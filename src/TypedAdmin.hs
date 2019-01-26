@@ -201,9 +201,12 @@ handleEditConsole nt req res path layout _ _ ctx rid = do
     mr <- detailForEdit (Proxy :: Proxy b) rid :: m (Maybe a)
     case mr of
       Just r ->
-        renderBST $ (fromMaybe defaultLayout layout) (renderEditHtml r (Proxy :: Proxy b) rid path)
-  res $
-    responseLBS status200 [contentType] body
+        fmap Just $ renderBST $ (fromMaybe defaultLayout layout) (renderEditHtml r (Proxy :: Proxy b) rid path)
+      Nothing -> pure Nothing
+  case body of
+    Just b ->
+      res $ responseLBS status200 [contentType] b
+    Nothing -> res400 res (LBS.fromString "not found")
 
 handleEdit :: forall proxy1 proxy2 a b z m. (EditConsole m a b)
   => (forall x. m x -> Handler x)
@@ -250,7 +253,10 @@ res404 res = res $ responseLBS status404 [("Content-Type", "text/plain")] "not f
 defaultLayout :: Monad m => HtmlT m a -> HtmlT m a
 defaultLayout x = do
   doctypehtml_ $ do
-    head_ [] $ return ()
+    head_ [] $ do
+      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+      link_ [rel_ "stylesheet", href_ "https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css"]
+      script_ [src_ "https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"] ("" :: String)
     body_ [] x
 
 loadDictionary :: FilePath -> IO (Either ParseException Dic)

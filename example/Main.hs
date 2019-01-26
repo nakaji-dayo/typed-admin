@@ -24,6 +24,7 @@ import           Data.Generics.Labels     ()
 import           Data.Maybe
 import           Data.Proxy
 import           Data.Text                as T
+import           Data.Time.Calendar
 import           Database.Relational      as R hiding (fromMaybe, list)
 import           DataSource2
 import           Debug.Trace              (trace)
@@ -47,14 +48,16 @@ instance ToDetail Handler Beer.Beer
 instance ToForm Handler Beer.Beer
 
 data BeerDetail = BeerDetail
-  { id   :: Int64
-  , name :: String
-  , ibu  :: Maybe Int32
+  { id          :: Int64
+  , name        :: String
+  , ibu         :: Maybe Int32
+  , releaseDate :: Day
   } deriving (Generic)
 
 data UpdateBeerParam = UpdateBeerParam
-  { name :: String
-  , ibu  :: Maybe Int32
+  { name        :: String
+  , ibu         :: Maybe Int32
+  , releaseDate :: Maybe Day
   } deriving (Generic)
 
 instance ToForm Handler UpdateBeerParam
@@ -102,8 +105,9 @@ instance ListConsole Handler BeerSummary SearchBeerParam where
         , images = fmap Image ["https://source.unsplash.com/100x100/?beer"]
         }
   listSublayout _ _ b = do
-    div_ [] $
-      a_ [href_ "/beers/_create"] "add new beer"
+    ul_ [] $
+      li_ [] $
+        a_ [href_ "/beers/_create"] "add new beer"
     div_ [] b
 
 instance ListConsole Handler Store.Store () where
@@ -122,15 +126,11 @@ instance CreateConsole Handler Beer.Beer Beer.Beer where
 
 toDetailUrl x = "/beers/" `append` (pack . show $ Beer.id x)
 
-instance EditConsole Handler BeerDetail UpdateBeerParam where
-  type EditIdent BeerDetail UpdateBeerParam = Int64
+instance EditConsole Handler Beer.Beer UpdateBeerParam where
+  type EditIdent Beer.Beer UpdateBeerParam = Int64
   editedRedirectPath _ _ ident = pure $ "/beers/" <> tshow ident <> "/_edit"
   detailForEdit _ ident = do
-    b <- one <$> runQuery Beer.selectBeer ident
-    case b of
-      Just b ->
-        return $ Just $ BeerDetail (Beer.id b) (Beer.name b) (Beer.ibu b)
-      Nothing -> return Nothing
+    one <$> runQuery Beer.selectBeer ident
   edit _ ident x = updateM f ()
     where
       f :: Update ()
@@ -145,7 +145,7 @@ route =
   [ ListR "beers" (Proxy :: Proxy BeerSummary) (Proxy :: Proxy SearchBeerParam)
   , DetailR ("beers" </> var @Int64) (Proxy :: Proxy Beer.Beer)
   , CreateR "beers" (Proxy :: Proxy Beer.Beer) (Proxy :: Proxy Beer.Beer)
-  , EditR ("beers" </> var @Int64) (Proxy :: Proxy BeerDetail) (Proxy :: Proxy UpdateBeerParam)
+  , EditR ("beers" </> var @Int64) (Proxy :: Proxy Beer.Beer) (Proxy :: Proxy UpdateBeerParam)
   , ListR "stores" (Proxy :: Proxy Store.Store) (Proxy :: Proxy ())
   ]
 

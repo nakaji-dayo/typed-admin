@@ -37,6 +37,7 @@ instance PathParam (Path a) () where
       f :: [Text] -> (Path a) -> [Text]
       f xs EmptyP          = xs
       f xs (StaticP p1 ps) = f (p1:xs) ps
+      f xs (VarP _)        = xs
 
 toText = ("/" <>) . intercalate "/"
 
