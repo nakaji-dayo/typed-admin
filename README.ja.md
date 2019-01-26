@@ -62,3 +62,8 @@ bから検索できて、一覧表示可能なa。
 ```
 *Identを持つ*Consoleは、Path中の変数とIdentが対応することを保証する
 　(各Routeの第２引数は`Path c`型で`PathParam (Path c) (Ident a)`を制約する)。
+
+adminにRouteを渡すと、Wai Middlewareができる
+```
+run 3000 $ admin route Prelude.id Nothing (either (const Nothing) Just dic) application
+```
