@@ -4,11 +4,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module Entity.BeerImage where
+module Entity.Comment where
 
 import           Database.Relational
 import           DataSource2         (defineTable)
 import           GHC.Generics
 import           Prelude             hiding (id)
 
-$(defineTable "beer_image" [''Show, ''Generic, ''Eq])
+$(defineTable "comment" [''Show, ''Generic, ''Eq])
