@@ -253,7 +253,10 @@ res404 res = res $ responseLBS status404 [("Content-Type", "text/plain")] "not f
 defaultLayout :: Monad m => HtmlT m a -> HtmlT m a
 defaultLayout x = do
   doctypehtml_ $ do
-    head_ [] $ return ()
+    head_ [] $ do
+      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+      link_ [rel_ "stylesheet", href_ "https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css"]
+      script_ [src_ "https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"] ("" :: String)
     body_ [] x
 
 loadDictionary :: FilePath -> IO (Either ParseException Dic)

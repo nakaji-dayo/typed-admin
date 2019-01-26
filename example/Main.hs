@@ -105,8 +105,9 @@ instance ListConsole Handler BeerSummary SearchBeerParam where
         , images = fmap Image ["https://source.unsplash.com/100x100/?beer"]
         }
   listSublayout _ _ b = do
-    div_ [] $
-      a_ [href_ "/beers/_create"] "add new beer"
+    ul_ [] $
+      li_ [] $
+        a_ [href_ "/beers/_create"] "add new beer"
     div_ [] b
 
 instance ListConsole Handler Store.Store () where

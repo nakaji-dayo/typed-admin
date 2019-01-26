@@ -321,7 +321,7 @@ renderListHtml xs p (path, param, query) (page, total) = do
           dt_ [] "action"
           dd_ [] $ do
             lblSearch <- toLocal "search"
-            input_ [type_ "submit", value_ lblSearch]
+            input_ [type_ "submit", value_ lblSearch, class_ "mdc-button"]
       table_ [] $ do
         thead_ [] $
           tr_ $ mapM_ th_ hs
