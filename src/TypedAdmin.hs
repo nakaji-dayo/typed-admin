@@ -13,13 +13,16 @@ module TypedAdmin
   , module TypedAdmin
   ) where
 
+import           Control.Monad.Catch        hiding (Handler)
 import           Control.Monad.State.Class
 import           Control.Monad.State.Strict
+import qualified Data.ByteString.Lazy       as LBS
 import qualified Data.ByteString.Lazy.UTF8  as LBS
 import qualified Data.ByteString.UTF8       as BS
 import           Data.Maybe
 import           Data.Proxy
-import           Data.Text                  (unpack)
+import           Data.Text                  (pack, unpack)
+import           Data.Text.Encoding         (encodeUtf8)
 import           Data.Yaml                  as Y
 import           Lucid
 import           Network.HTTP.Types
@@ -64,7 +67,7 @@ admin rt nt layout dic = \app -> \req res -> do
         f "POST" (CreateR path p1 p2) = do
           case fromPath (path) (Prelude.reverse ps) of
             Just () ->
-              Just $ handleCreate nt req res p1 p2 ctx
+              Just $ handleCreate nt req res layout p1 p2 ctx
             _ -> Nothing
         f "GET" (EditR path p1 p2) = do
           case fromPath (StaticP "_edit" path) (reverse ps) of
@@ -72,7 +75,7 @@ admin rt nt layout dic = \app -> \req res -> do
               Just $ handleEditConsole nt req res (path, x) layout p1 p2 ctx x
             _ -> Nothing
         f "POST" (EditR path p1 p2) = do
-          handleEdit nt req res p1 p2 ctx <$> fromPath path (reverse ps)
+          handleEdit nt req res layout p1 p2 ctx <$> fromPath path (reverse ps)
         f "POST" (DeleteR path p1) = do
           case fromPath (StaticP "_delete" path) (reverse ps) of
             Just x ->
@@ -85,7 +88,8 @@ admin rt nt layout dic = \app -> \req res -> do
 
 -- newtype Handler a = Handler { runHandler :: IO a }
 
-contentType = ("Content-Type", "Content-type: text/html; charset=UTF-8")
+contentType :: (HeaderName, BS.ByteString)
+contentType = ("Content-Type", "text/html; charset=UTF-8")
 
 -- todo:: receive func like (m - IO)
 
@@ -141,7 +145,7 @@ handleDetailConsole nt req res _ ctx rid = do
        res404 res
 
 handleCreateConsole :: forall proxy1 proxy2 a b z m c d.
-  (CreateConsole m a b, PathParam c d)
+  (CreateConsole m a b, PathParam c d, MonadState Context m)
   => (forall x. m x -> Handler x)
   -> Request
   -> (Response -> IO z)
@@ -165,24 +169,36 @@ handleCreateConsole nt req res path layout ctx _ _ = do
       res $ responseLBS status200 [contentType] x
     Nothing -> res404 res
 
-handleCreate :: forall proxy1 proxy2 a b z m. (CreateConsole m a b)
+handleCreate :: forall proxy1 proxy2 a b z m.
+  (CreateConsole m a b, MonadState Context m)
   => (forall x. m x -> Handler x)
   -> Request
   -> (Response -> IO z)
+  -> Maybe (Layout m)
   -> proxy1 a
   -> proxy2 b
   -> Context
   -> IO z
-handleCreate nt req res _ _ ctx = do
+handleCreate nt req res layout _ _ ctx = do
   (ps, _) <- parseRequestBody lbsBackEnd req
+  print ps
   mx <- runHandler' ctx $ nt $ fromForm (mapSnd Just <$> ps)
   case mx of
-    Right x -> do
+    Right x -> handleAll (exHandler ctx nt layout res) $ do
       path <- runHandler' ctx $ nt $ do
         create (Proxy :: Proxy a) (x :: b)
         createdRedirectPath (Proxy :: Proxy a) (x :: b)
       res $ responseLBS status302 [contentType, ("Location", BS.fromString $ unpack path)] "not found"
-    Left x -> res400 res (LBS.fromString x)
+    Left x -> do
+      body <- runHandler' ctx $ nt $ do
+        renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml x)
+      res $ responseLBS status200 [contentType] body
+
+exHandler ctx nt layout res e = do
+  body <- runHandler' ctx $ nt $ do
+    renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml (pack $ displayException e))
+  res $ responseLBS status200 [contentType] body
+
 
 handleEditConsole :: forall proxy1 proxy2 a b c d z m.
   (EditConsole m a b, PathParam c d, MonadState Context m)
@@ -208,16 +224,18 @@ handleEditConsole nt req res path layout _ _ ctx rid = do
       res $ responseLBS status200 [contentType] b
     Nothing -> res400 res (LBS.fromString "not found")
 
-handleEdit :: forall proxy1 proxy2 a b z m. (EditConsole m a b)
+handleEdit :: forall proxy1 proxy2 a b z m.
+  (EditConsole m a b, MonadState Context m)
   => (forall x. m x -> Handler x)
   -> Request
   -> (Response -> IO z)
+  -> Maybe (Layout m)
   -> proxy1 a
   -> proxy2 b
   -> Context
   -> EditIdent a b
   -> IO z
-handleEdit nt req res _ _ ctx rid = do
+handleEdit nt req res layout _ _ ctx rid = do
   (ps, _) <- parseRequestBody lbsBackEnd req
   mx <- runHandler' ctx $ nt $ fromForm (mapSnd Just <$> ps)
   case mx of
@@ -226,7 +244,11 @@ handleEdit nt req res _ _ ctx rid = do
         edit (Proxy :: Proxy a) rid (x :: b)
         editedRedirectPath (Proxy :: Proxy a) (Proxy :: Proxy b) rid
       res $ responseLBS status302 [contentType, ("Location", BS.fromString $ unpack editP)] "not found"
-    Left x -> res400 res (LBS.fromString x)
+    Left x -> do
+      body <- runHandler' ctx $ nt $ do
+        renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml x)
+      res $ responseLBS status200 [contentType] body
+
 
 handleDelete :: forall proxy1 a z m. (DeleteConsole m a)
   => (forall x. m x -> Handler x)
@@ -245,9 +267,9 @@ handleDelete nt req res _ ctx rid = do
         delete rid (x :: a)
         deletedRedirectPath rid x
       res $ responseLBS status302 [contentType, ("Location", BS.fromString $ unpack editP)] "not found"
-    Left x -> res400 res (LBS.fromString x)
+    Left x -> res400 res (LBS.fromStrict $ encodeUtf8 x)
 
-res400 res str = res $ responseLBS status400 [("Content-Type", "text/plain")] str
+res400 res str = res $ responseLBS status400 [contentType] str
 res404 res = res $ responseLBS status404 [("Content-Type", "text/plain")] "not found"
 
 defaultLayout :: Monad m => HtmlT m a -> HtmlT m a

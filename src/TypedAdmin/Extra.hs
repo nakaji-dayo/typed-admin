@@ -39,10 +39,12 @@ newtype HiddenField a = HiddenField { unHiddenField :: a }
 instance Monad m => FormField m (HiddenField String) where
   toFormField n x = input_ [type_ "hidden", name_ n, value_ (pack $ fromMaybe "" $ unHiddenField <$> x)]
   fromFormField ps k = pure $ fmap HiddenField $ memptyToNothing =<< BS.toString <$> join (lookup k ps)
+  isVisible _ = pure False
 
 instance Monad m => FormField m (HiddenField Int64) where
   toFormField n x = input_ [type_ "hidden", name_ n, value_ (pack $ fromMaybe "" $ show . unHiddenField <$> x)]
   fromFormField ps k = pure $ fmap HiddenField $ lookupMaybe k ps
+  isVisible _ = pure False
 
 data Anchor a = Anchor a Text
 
@@ -56,19 +58,25 @@ newtype TextArea = TextArea { unTextArea :: String }
 instance Monad m => FormField m TextArea where
   toFormField n x = textarea_ [name_ n] $
     toHtml $ fromMaybe "" $ unTextArea <$> x
-  fromFormField ps k = pure $ fmap TextArea $ memptyToNothing =<< BS.toString <$> join (lookup k ps)
+  fromFormField ps k = pure $ fmap TextArea $ BS.toString <$> join (lookup k ps)
 
 newtype RangeField a = RangeField { unRangeField :: a }
   deriving (Show, Default)
 
 instance (Monad m, Bounded a, Enum a) => FormField m (RangeField a) where
-  toFormField n x = input_ [ type_ "range", name_ n
-                           , value_ (pack $ fromMaybe "" $ show . fromEnum . unRangeField <$> x)
-                           , step_ "1"
-                           , min_ (pack . show $ fromEnum (minBound :: a))
-                           , max_ (pack . show $ fromEnum (maxBound :: a))]
+  toFormField n x = do
+    span_ [] $ do
+      let n' = n <> "_out"
+          v = pack $ fromMaybe "" $ show . fromEnum . unRangeField <$> x
+      input_ [ type_ "range", name_ n
+             , value_ v
+             , step_ "1"
+             , min_ (pack . show $ fromEnum (minBound :: a))
+             , max_ (pack . show $ fromEnum (maxBound :: a))
+             , oninput_ ("this.form." <> n' <> ".value = " <> "this.value")
+             ]
+      output_ [ name_ n' ] $ toHtml v
   fromFormField ps k = pure $ fmap (RangeField . toEnum) $ lookupMaybe k ps
-
 
 class GoogleApiEnv m where
   getKey :: m String

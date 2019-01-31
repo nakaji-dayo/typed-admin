@@ -18,3 +18,9 @@ memptyToNothing x = if x == mempty then Nothing else Just x
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = listToMaybe . mapMaybe f
+
+tuple3 (a, b, _) = (a, b)
+
+snd3 (_, a, _) = a
+
+thd (_, _, a) = a
