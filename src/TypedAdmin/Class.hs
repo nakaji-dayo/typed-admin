@@ -27,8 +27,8 @@ import           Data.Text                     (Text)
 import qualified Data.Yaml                     as Y
 import           GHC.Generics
 import           Lucid                         (HtmlT (..))
+import           Lucid
 import           Network.HTTP.Types
-
 
 type PathText = Text
 type Page = Int
@@ -76,9 +76,9 @@ newtype Handler a = Handler
 
 -- 廃止できないか？(ToDetailでカバー?)
 class HasHeader a where
-  hasHeader :: (Monad m, MonadState Context m) => proxy a -> [HtmlT m ()]
-  default hasHeader:: (Monad m, MonadState Context m, Generic a, GHasHeader (Rep a)) => proxy a -> [HtmlT m ()]
-  hasHeader x = gHasHeader (Proxy :: Proxy (Rep a))
+  hasHeader :: (Monad m, MonadState Context m) => proxy a -> HtmlT m ()
+  default hasHeader:: (Monad m, MonadState Context m, Generic a, GHasHeader (Rep a)) => proxy a -> HtmlT m ()
+  hasHeader x = tr_ $ mapM_ th_ $ gHasHeader (Proxy :: Proxy (Rep a))
 
 class GHasHeader (f :: * -> *) where
   gHasHeader :: (Monad m, MonadState Context m) => proxy f -> [HtmlT m ()]
@@ -125,11 +125,11 @@ class Monad m => FormField m a where
   isVisible :: Maybe a -> m Bool
   isVisible _ = pure True
 
+data Pager = Auto | Total Int | None
+
 -- todo: wrap [a]
 class (HasHeader a, ToDetail m a, ToForm m b) => ListConsole m a b where
-  list :: (Maybe b) -> Page -> m ([a])
-  total :: Maybe b -> proxy a -> m (Maybe Int)
-  total _ _ = pure Nothing
+  list :: (Maybe b) -> Page -> m ([a], Pager)
   listSublayout :: Maybe b -> [a] -> HtmlT m () -> HtmlT m ()
   listSublayout _ _ x = x
 -- todo wrap a

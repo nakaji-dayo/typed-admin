@@ -316,7 +316,7 @@ selectFormField' required n x = do
               | otherwise -> []
             _ -> []
       l <- lift $ toLocal $ pack $ show o
-      option_ ([value_ $ pack $ show $ fromEnum o] ++ sed) $ toHtml $ l
+      option_ ([value_ $ pack $ show $ fromEnum o] ++ sed) $ toHtmlRaw l
 
 fromSelectFormField ps k = pure $ fmap (SelectForm . toEnum) $ lookupMaybe k ps
 
@@ -338,16 +338,16 @@ renderListHtml ::
   => [a]
   -> Maybe b
   -> (c, d, Query)
-  -> (Int, Maybe Int)
+  -> (Int, Pager)
   -> HtmlT m ()
-renderListHtml xs p (path, param, query) (page, total) = do
+renderListHtml xs p (path, param, query) (page, pager) = do
   let pathText = toText $ renderPath path param
   -- liftIO $ print $ show (Proxy :: Proxy a)
   let hs = hasHeader (Proxy :: Proxy a)
   title <- lift $ detailTitle (Proxy :: Proxy a)
   title' <- toLocal title
   h1_ [] $ toHtml $ title'
-  listSublayout p xs $ do
+  listSublayout p xs $ div_ [class_ ("_typed_admin_list_" <> title)] $ do
     pushH title $ do
       form_ [method_ "GET", action_ pathText, class_ "_typed_admin_search_form"] $ do
         form <- lift $ toForm p
@@ -368,7 +368,7 @@ renderListHtml xs p (path, param, query) (page, total) = do
               input_ [type_ "submit", value_ lblSearch, class_ "mdc-button"]
       table_ [] $ do
         thead_ [] $
-          tr_ $ mapM_ th_ hs
+          hs
         tbody_ [] $ do
           forM_ xs $ \row -> do
             detail <- lift $ toDetail row
@@ -388,27 +388,39 @@ renderListHtml xs p (path, param, query) (page, total) = do
               --            ]
               --           ) $ \a -> li_ [] a
       div_ [class_ "_typed_admin_pager"] $ do
-        prev <- lift $ toLocal "prev"
-        next <- lift $ toLocal "next"
+        prev <- lift $ toLocal "<"
+        next <- lift $ toLocal ">"
+        first <- lift $ toLocal "<<"
+        last <- lift $ toLocal ">>"
         let rQuery q = pack (BS.toString (renderQuery True q))
             pageQ d = rQuery (setPageQuery (page + d) query)
-        case total of
-          Just t -> do
-            when (page > 0 && t /= 0) $
+        case pager of
+          Total t -> do
+            when (page > 0 && t /= 0) $ do
+              a_ [href_ (pathText <> rQuery (setPageQuery 0 query))] $ toHtml first
               a_ [href_ (pathText <> pageQ (-1))] $ toHtml prev
+            when (page - pagerScope > 0) $
+              span_ "..."
             forM_ [0..(t - 1)] $ \p -> do
               let sp = toHtml $ show (p + 1)
               if page == p
               then
                 span_ $ sp
               else
-                a_ [href_ (pathText <> rQuery (setPageQuery p query))] sp
-            when (t - 1 /= page && t /= 0) $
+                when (page - pagerScope <= p && p <= page + pagerScope) $
+                  a_ [href_ (pathText <> rQuery (setPageQuery p query))] sp
+            when (page + pagerScope < t - 1) $
+              span_ "..."
+            when (t - 1 /= page && t /= 0) $ do
               a_ [href_ (pathText <> pageQ 1)] $ toHtml next
-          Nothing -> do
-            when (page > 0) $
+              a_ [href_ (pathText <> rQuery (setPageQuery (t-1) query))] $ toHtml last
+          Auto -> do
+            when (page > 0) $ do
               a_ [href_ (pathText <> pageQ (-1))] $ toHtml prev
-            a_ [href_ (pathText <> pageQ 1)] $ toHtml next
+              a_ [href_ (pathText <> pageQ 1)] $ toHtml next
+          None -> return ()
+
+pagerScope = 20
 
 setPageQuery page query =
   let p = ("page", Just $ BS.fromString $ show (page))
@@ -450,7 +462,7 @@ toCreateForm x _ (path, param) = do
               forM_ detail $ \(name, detailField) -> do
                 name' <- toLocal name
                 let ffield = lookup name form
-                dt_ [] $ do
+                dt_ [class_ ("_typed_admin_label_" <> name)] $ do
                   when (maybe True snd ffield) $ do
                     label_ [] (toHtml name')
                 dd_ [class_ ("_typed_admin_field_" <> name)] $
@@ -484,7 +496,7 @@ renderEditHtml x _ ident (path, param) = do
         dl_ $ do
           forM_ detail $ \(name, detailField) -> do
             let ffield = lookup name form
-            dt_ [] $ do
+            dt_ [class_ ("_typed_admin_label_" <> name)] $ do
               when (maybe True snd ffield) $ do
                 name' <- toLocal name
                 label_ [] (toHtml name')

@@ -34,7 +34,7 @@ import           TypedAdmin.Instance
 import           TypedAdmin.Router
 import           TypedAdmin.Util
 
-type Layout m =  HtmlT m () -> HtmlT m ()
+type Layout m =  Request -> HtmlT m () -> HtmlT m ()
 
 runHandler' ctx a = evalStateT (runHandler a) ctx
 
@@ -104,17 +104,16 @@ handleListConsole :: forall proxy1 proxy2 p1 p2 z m a b.
   -> proxy1 p1
   -> proxy2 p2
   -> IO z
-handleListConsole nt req res (path, param) layout ctx _ _ = do
+handleListConsole nt req res (path, param) layout ctx _ _ = handleAll (exHandler ctx nt layout req res) $ do
   let query = queryString req
   let page = fromMaybe 0 $ lookupMaybe "page" query
   let
     f :: m LBS.ByteString
     f = do
       p <- r2m <$> fromForm query
-      beers <- (list :: (Maybe p2) -> Page -> m ([p1])) p page
-      mtotal <- total p (Proxy :: Proxy p1)
-      let body = renderListHtml beers p (path, param, query) (page, mtotal)
-      renderBST $ (fromMaybe defaultLayout layout) body
+      (beers, pager) <- (list :: (Maybe p2) -> Page -> m ([p1], Pager)) p page
+      let body = renderListHtml beers p (path, param, query) (page, pager)
+      renderBST $ (fromMaybe defaultLayout layout) req body
   body <- runHandler' ctx $ nt f
   res $
     responseLBS status200 [contentType] body
@@ -161,7 +160,7 @@ handleCreateConsole nt req res path layout ctx _ _ = do
     mr <- detailForCreate query (Proxy :: Proxy b) :: m (Maybe a)
     case mr of
       Just r ->
-        Just <$> (renderBST $ (fromMaybe defaultLayout layout) (toCreateForm r (Proxy :: Proxy b) path))
+        Just <$> (renderBST $ (fromMaybe defaultLayout layout) req (toCreateForm r (Proxy :: Proxy b) path))
       Nothing ->
         pure Nothing
   case body of
@@ -184,19 +183,19 @@ handleCreate nt req res layout _ _ ctx = do
   print ps
   mx <- runHandler' ctx $ nt $ fromForm (mapSnd Just <$> ps)
   case mx of
-    Right x -> handleAll (exHandler ctx nt layout res) $ do
+    Right x -> handleAll (exHandler ctx nt layout req res) $ do
       path <- runHandler' ctx $ nt $ do
         create (Proxy :: Proxy a) (x :: b)
         createdRedirectPath (Proxy :: Proxy a) (x :: b)
       res $ responseLBS status302 [contentType, ("Location", BS.fromString $ unpack path)] "not found"
     Left x -> do
       body <- runHandler' ctx $ nt $ do
-        renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml x)
+        renderBST $ (fromMaybe defaultLayout layout) req (renderErrorHtml x)
       res $ responseLBS status200 [contentType] body
 
-exHandler ctx nt layout res e = do
+exHandler ctx nt layout req res e = do
   body <- runHandler' ctx $ nt $ do
-    renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml (pack $ displayException e))
+    renderBST $ (fromMaybe defaultLayout layout) req (renderErrorHtml (pack $ displayException e))
   res $ responseLBS status200 [contentType] body
 
 
@@ -217,7 +216,7 @@ handleEditConsole nt req res path layout _ _ ctx rid = do
     mr <- detailForEdit (Proxy :: Proxy b) rid :: m (Maybe a)
     case mr of
       Just r ->
-        fmap Just $ renderBST $ (fromMaybe defaultLayout layout) (renderEditHtml r (Proxy :: Proxy b) rid path)
+        fmap Just $ renderBST $ (fromMaybe defaultLayout layout) req (renderEditHtml r (Proxy :: Proxy b) rid path)
       Nothing -> pure Nothing
   case body of
     Just b ->
@@ -246,7 +245,7 @@ handleEdit nt req res layout _ _ ctx rid = do
       res $ responseLBS status302 [contentType, ("Location", BS.fromString $ unpack editP)] "not found"
     Left x -> do
       body <- runHandler' ctx $ nt $ do
-        renderBST $ (fromMaybe defaultLayout layout) (renderErrorHtml x)
+        renderBST $ (fromMaybe defaultLayout layout) req (renderErrorHtml x)
       res $ responseLBS status200 [contentType] body
 
 
@@ -272,8 +271,8 @@ handleDelete nt req res _ ctx rid = do
 res400 res str = res $ responseLBS status400 [contentType] str
 res404 res = res $ responseLBS status404 [("Content-Type", "text/plain")] "not found"
 
-defaultLayout :: Monad m => HtmlT m a -> HtmlT m a
-defaultLayout x = do
+defaultLayout :: Monad m => Request -> HtmlT m a -> HtmlT m a
+defaultLayout _ x = do
   doctypehtml_ $ do
     head_ [] $ do
       meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
