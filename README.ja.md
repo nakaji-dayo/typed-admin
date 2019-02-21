@@ -76,3 +76,4 @@ adminMiddleware = admin route Prelude.id Nothing dic
   - Sematic UIかLightningを検討中
 - 具体的にRDBMSをターゲットとし、各Consoleの実装を自動化する別ライブラリを用意
   - HRRに依存し、ListConsole.listで使うqueryなどを(ToForm a)から生成する
+- Console間のリンクをいい感じにする
