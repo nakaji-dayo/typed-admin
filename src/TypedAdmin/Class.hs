@@ -27,8 +27,8 @@ import           Data.Text                     (Text)
 import qualified Data.Yaml                     as Y
 import           GHC.Generics
 import           Lucid                         (HtmlT (..))
+import           Lucid
 import           Network.HTTP.Types
-
 
 type PathText = Text
 type Page = Int
@@ -76,19 +76,19 @@ newtype Handler a = Handler
 
 -- 廃止できないか？(ToDetailでカバー?)
 class HasHeader a where
-  hasHeader :: (Monad m, MonadState Context m) => proxy a -> [HtmlT m ()]
-  default hasHeader:: (Monad m, MonadState Context m, Generic a, GHasHeader (Rep a)) => proxy a -> [HtmlT m ()]
-  hasHeader x = gHasHeader (Proxy :: Proxy (Rep a))
+  hasHeader :: (Monad m, MonadState Context m) => proxy a -> HtmlT m ()
+  default hasHeader:: (Monad m, MonadState Context m, Generic a, GHasHeader (Rep a)) => proxy a -> HtmlT m ()
+  hasHeader x = tr_ $ mapM_ th_ $ gHasHeader (Proxy :: Proxy (Rep a))
 
 class GHasHeader (f :: * -> *) where
   gHasHeader :: (Monad m, MonadState Context m) => proxy f -> [HtmlT m ()]
 
 class ToDetailField a where
-  toDetailField :: Monad m => a -> HtmlT m ()
+  toDetailField :: (Monad m, MonadState Context m) => a -> HtmlT m ()
 
 class MonadIO m => ToDetail m a where
   toDetail :: a -> m [(Text, HtmlT m ())]
-  default toDetail :: (Generic a, GToDetail (Rep a)) => a -> m [(Text, HtmlT m ())]
+  default toDetail :: (Generic a, GToDetail (Rep a), MonadState Context m) => a -> m [(Text, HtmlT m ())]
   toDetail x = do
     gToDetail (from x)
     -- case linkDetail x of
@@ -104,30 +104,32 @@ class MonadIO m => ToDetail m a where
   detailTitle x = gDetailTitle (Proxy :: Proxy (Rep a))
 
 class GToDetail (f :: * -> *) where
-  gToDetail :: (MonadIO m, Monad m2) => f a -> m [(Text, HtmlT m2 ())]
+  gToDetail :: (MonadIO m, Monad m2, MonadState Context m2) => f a -> m [(Text, HtmlT m2 ())]
   gDetailTitle :: (Monad m) => proxy f -> m Text
 
 class Monad m =>  ToForm m a where
-  toForm :: Maybe a -> m [(Text, HtmlT m ())]
-  default toForm :: (Generic a, GToForm m (Rep a)) => Maybe a -> m [(Text, HtmlT m ())]
+  toForm :: Maybe a -> m [(Text, (HtmlT m (), Bool))]
+  default toForm :: (Generic a, GToForm m (Rep a)) => Maybe a -> m [(Text, (HtmlT m (), Bool))]
   toForm x = gToForm (from <$> x)
-  fromForm :: [(ByteString, Maybe ByteString)] -> m (Either String a)
-  default fromForm :: (Generic a, GToForm m (Rep a)) => [(ByteString, Maybe ByteString)] -> m (Either String a)
+  fromForm :: [(ByteString, Maybe ByteString)] -> m (Either Text a)
+  default fromForm :: (Generic a, GToForm m (Rep a)) => [(ByteString, Maybe ByteString)] -> m (Either Text a)
   fromForm x = fmap to <$> gFromForm x
 
-class Monad m => GToForm m (f :: * -> *) where
-  gToForm :: Maybe (f a) -> m [(Text, HtmlT m ())]
-  gFromForm :: [(ByteString, Maybe ByteString)] -> m (Either String (f a))
+class (Monad m, MonadState Context m) => GToForm m (f :: * -> *) where
+  gToForm :: Maybe (f a) -> m [(Text, (HtmlT m (), Bool))]
+  gFromForm :: [(ByteString, Maybe ByteString)] -> m (Either Text (f a))
 
 class Monad m => FormField m a where
   toFormField :: Text -> Maybe a -> HtmlT m ()
   fromFormField :: [(ByteString, Maybe ByteString)] -> ByteString -> m (Maybe a)
+  isVisible :: Maybe a -> m Bool
+  isVisible _ = pure True
+
+data Pager = Auto | Total Int | None
 
 -- todo: wrap [a]
 class (HasHeader a, ToDetail m a, ToForm m b) => ListConsole m a b where
-  list :: (Maybe b) -> Page -> m ([a])
-  total :: Maybe b -> proxy a -> m (Maybe Int)
-  total _ _ = pure Nothing
+  list :: (Maybe b) -> Page -> m ([a], Pager)
   listSublayout :: Maybe b -> [a] -> HtmlT m () -> HtmlT m ()
   listSublayout _ _ x = x
 -- todo wrap a

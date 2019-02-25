@@ -91,7 +91,7 @@ instance ToForm Handler SearchBeerParam
 instance ListConsole Handler BeerSummary SearchBeerParam where
   list p _ = do
     beers <- runQuery (relationalQuery' (f p) []) ()
-    return $ fmap r beers
+    return $ (fmap r beers, Auto)
     where
       f (param :: Maybe SearchBeerParam) = relation $ do
         x <- query Beer.beer
@@ -111,7 +111,9 @@ instance ListConsole Handler BeerSummary SearchBeerParam where
     div_ [] b
 
 instance ListConsole Handler Store.Store () where
-  list x _ = runQuery (relationalQuery' Store.store []) ()
+  list x _ = do
+    xs <- runQuery (relationalQuery' Store.store []) ()
+    return (xs, Auto)
 
 instance DetailConsole Handler Beer.Beer where
   type Ident Beer.Beer = Int64

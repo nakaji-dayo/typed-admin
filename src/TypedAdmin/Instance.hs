@@ -53,6 +53,9 @@ toLocal k = do
           _                    -> f dic (tail h) (tail h) k''
   f dic h h k'
 
+showLocal :: (Show a, MonadState Context m) => a -> m Text
+showLocal = toLocal . pack . show
+
 -- instance {-# OVERLAPS #-} (Show a) => ToHtml a where
 --   toHtml = toHtml . show
 --   toHtmlRaw = toHtmlRaw .show
@@ -65,7 +68,9 @@ instance ToDetailField String where
   toDetailField x = span_ [] (toHtml x)
 
 instance ToDetailField Bool where
-  toDetailField x = span_ [] (toHtml (show x))
+  toDetailField x = do
+    l <- lift $ showLocal x
+    span_ [] (toHtml l)
 
 instance ToDetailField Integer where
   toDetailField x = span_ [] (toHtml (show x))
@@ -95,7 +100,9 @@ instance {-# OVERLAPPABLE #-} ToDetailField a => ToDetailField [a] where
         li_ [] x
 
 instance {-# OVERLAPPABLE #-} (Show a) =>  ToDetailField a where
-  toDetailField x = span_ [] (toHtml $ show x)
+  toDetailField x = do
+    l <- lift $ showLocal x
+    span_ [] (toHtml l)
 
 -- instance GToDetail V1 where
 --   gToDetail _ = error "toRow V1"
@@ -192,28 +199,21 @@ instance GToForm m f => GToForm m (M1 C t f) where
     x <- gFromForm ps
     pure $ M1 <$> x
 
-instance forall s m c i. (Selector s, FormField m c) => GToForm m (M1 S s (K1 i c)) where
+instance forall s m c i. (Selector s, FormField m c, MonadState Context m) => GToForm m (M1 S s (K1 i c)) where
   gToForm x = do
     let k = (\(M1 (K1 k)) -> k) <$> x
         sname = selName (undefined :: t s (K1 i (Maybe a)) p)
-    pure [(pack sname, toFormField (pack $ sname) k)]
+    visible <- isVisible k
+    pure [(pack sname, (toFormField (pack $ sname) k, visible))]
   gFromForm ps = do
     let sname = selName (undefined :: t s (K1 i (Maybe a)) p)
     mx <- fromFormField ps (BS.fromString $ sname)
-    pure $ case mx of
-      Just x  -> Right $ M1 $ K1 x
-      Nothing -> Left ("--GToForm--" <> show ps <> sname)
-
-instance Monad m => FormField m String where
-  toFormField n x = input_ [type_ "text", name_ n, value_ (pack $ fromMaybe "" x), required_ ""]
-  fromFormField ps k = pure (BS.toString <$> join (lookup k ps))
-
-instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe String) where
-  toFormField n x = input_ [type_ "text", name_ n, value_ (pack $ fromMaybe "" $ join x)
-                           , class_ "maybe"]
-  fromFormField ps k =
-    let x = BS.toString <$> join (lookup k ps)
-    in pure $ Just $ memptyToNothing =<< x
+    case mx of
+      Just x  -> pure $ Right $ M1 $ K1 x
+      Nothing -> do
+        lname <- toLocal $ pack sname
+        msg <- toLocal $ "is_invalid_value"
+        pure $ Left (lname <> " " <> msg)
 
 instance Monad m => FormField m Bool where
   toFormField n x =
@@ -225,10 +225,22 @@ instance Monad m => FormField m Bool where
 --   toFormField n x = input_ [type_ "number", name_ n, value_ (pack $ fromMaybe "" (show <$> x))]
 --   fromFormField ps k = lookupMaybe k ps
 
-toHtmlInput t n x = input_ [type_ t, name_ n, value_ (pack $ fromMaybe "" (show <$> x))]
+toHtmlInput t n x = input_ [type_ t, name_ n
+                           , value_ (pack $ fromMaybe "" (show <$> x))
+                           , required_ ""]
+toHtmlInput' t n x = input_ [type_ t, name_ n
+                           , value_ (pack $ fromMaybe "" (show <$> join x))
+                           ]
 fromHtmlInput ps k = pure $ lookupMaybe k ps
+fromHtmlInput' ps k =
+  let x = BS.toString <$> join (lookup k ps)
+  in pure $ Just $ memptyToNothing =<< x
 
 -- todo: Read,ShowなものはすべてtoTypeAttr実装し共通実装では？
+instance Monad m => FormField m String where
+  toFormField n x = input_ [type_ "text", name_ n, value_ (pack $ fromMaybe "" x), required_ ""]
+  fromFormField ps k = pure (BS.toString <$> join (lookup k ps))
+
 instance Monad m => FormField m Int where
   toFormField = toHtmlInput "number"
   fromFormField = fromHtmlInput
@@ -249,19 +261,48 @@ instance Monad m => FormField m Day where
   toFormField = toHtmlInput "date"
   fromFormField = fromHtmlInput
 
-instance FormField m a => FormField m (Maybe a) where
+-- とりあえず、雑にしとく
+
+instance {-# OVERLAPS #-} FormField m a => FormField m (Maybe a) where
   toFormField n x = toFormField n (join x)
   fromFormField ps k = do
-    x <- fromFormField ps k
+    Just <$> fromFormField ps k
      -- todo: Justが出てくる箇所多分型間違ってるので、見直す
-    pure $ Just x
+  isVisible x = isVisible (join x)
+
+instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe String) where
+  toFormField n x = input_ [type_ "text", name_ n, value_ (pack $ fromMaybe "" $ join x)
+                           , class_ "maybe"]
+  fromFormField ps k =
+    let x = BS.toString <$> join (lookup k ps)
+    in pure $ Just $ memptyToNothing =<< x
+
+instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe Int) where
+  toFormField = toHtmlInput' "number"
+  fromFormField ps k = Just <$> fromFormField ps k
+
+instance {-# OVERLAPPING #-} Monad m =>  FormField m (Maybe Int32) where
+  toFormField = toHtmlInput' "number"
+  fromFormField ps k = Just <$> fromFormField ps k
+
+instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe Int64) where
+  toFormField = toHtmlInput' "number"
+  fromFormField ps k = Just <$> fromFormField ps k
+
+instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe Double) where
+  toFormField = toHtmlInput' "text"
+  fromFormField ps k = Just <$> fromFormField ps k
+
+instance {-# OVERLAPPING #-} Monad m => FormField m (Maybe Day) where
+  toFormField = toHtmlInput' "date"
+  fromFormField ps k = Just <$> fromFormField ps k
 
 newtype SelectForm a = SelectForm { unSelectForm :: a}
   deriving (Show)
 
 
 selectFormField' :: forall a m.
-  (Enum a, Bounded a, Show a, Read a, Monad m) =>
+  (Enum a, Bounded a, Show a, Read a, Monad m, MonadState Context m) =>
   Bool -> Text -> Maybe (SelectForm a) -> HtmlT m ()
 selectFormField' required n x = do
   let min = minBound :: a
@@ -274,15 +315,16 @@ selectFormField' required n x = do
               | fromEnum o == fromEnum x -> [selected_ ""]
               | otherwise -> []
             _ -> []
-      option_ ([value_ $ pack $ show $ fromEnum o] ++ sed) $ toHtml $ show o
+      l <- lift $ toLocal $ pack $ show o
+      option_ ([value_ $ pack $ show $ fromEnum o] ++ sed) $ toHtmlRaw l
 
 fromSelectFormField ps k = pure $ fmap (SelectForm . toEnum) $ lookupMaybe k ps
 
-instance {-# OVERLAPPING #-} (Enum a, Bounded a, Show a, Read a, Monad m) => FormField m (Maybe (SelectForm a)) where
+instance {-# OVERLAPPING #-} (Enum a, Bounded a, Show a, Read a, Monad m, MonadState Context m) => FormField m (Maybe (SelectForm a)) where
   toFormField n x = selectFormField' False n (join x)
   fromFormField ps k = Just <$> fromSelectFormField ps k
 
-instance (Enum a, Bounded a, Show a, Read a, Monad m) => FormField m (SelectForm a) where
+instance (Enum a, Bounded a, Show a, Read a, Monad m, MonadState Context m) => FormField m (SelectForm a) where
   toFormField n x = selectFormField' True n x
   fromFormField = fromSelectFormField
 
@@ -296,41 +338,43 @@ renderListHtml ::
   => [a]
   -> Maybe b
   -> (c, d, Query)
-  -> (Int, Maybe Int)
+  -> (Int, Pager)
   -> HtmlT m ()
-renderListHtml xs p (path, param, query) (page, total) = do
+renderListHtml xs p (path, param, query) (page, pager) = do
   let pathText = toText $ renderPath path param
   -- liftIO $ print $ show (Proxy :: Proxy a)
   let hs = hasHeader (Proxy :: Proxy a)
   title <- lift $ detailTitle (Proxy :: Proxy a)
   title' <- toLocal title
   h1_ [] $ toHtml $ title'
-  listSublayout p xs $ do
+  listSublayout p xs $ div_ [class_ ("_typed_admin_list_" <> title)] $ do
     pushH title $ do
       form_ [method_ "GET", action_ pathText, class_ "_typed_admin_search_form"] $ do
         form <- lift $ toForm p
         div_ [class_ "_typed_admin_fields"] $ do
-          forM_ form $ \(name, fld) -> do
+          forM_ form $ \(name, (fld, visible)) -> do
             div_ [] $ do
               dt_ [] $ do
-                name' <- toLocal name
-                label_ [] (toHtml name')
+                when visible $ do
+                  name' <- toLocal name
+                  label_ [] (toHtml name')
               dd_ [] $
                   fld
-        div_ [class_ "_typed_admin_actions"] $ do
-          dt_ [] "action"
-          dd_ [] $ do
-            lblSearch <- toLocal "search"
-            input_ [type_ "submit", value_ lblSearch, class_ "mdc-button"]
+        div_ [class_ "_typed_admin_actions"] $
+          when (or $ snd . snd <$> form) $ do
+            dt_ [] "action"
+            dd_ [] $ do
+              lblSearch <- toLocal "search"
+              input_ [type_ "submit", value_ lblSearch, class_ "mdc-button"]
       table_ [] $ do
         thead_ [] $
-          tr_ $ mapM_ th_ hs
+          hs
         tbody_ [] $ do
           forM_ xs $ \row -> do
             detail <- lift $ toDetail row
             tr_ [] $ do
               forM_ detail $ \(n, cell) -> do
-                td_ [class_ ("_typed_admin_td_" <> n)] cell
+                td_ [class_ ("_typed_admin_field_" <> n)] cell
               td_ [class_ "_typed_admin_actions"] $
                 ul_ [] $ do
                   editLbl <- toLocal "edit"
@@ -344,19 +388,39 @@ renderListHtml xs p (path, param, query) (page, total) = do
               --            ]
               --           ) $ \a -> li_ [] a
       div_ [class_ "_typed_admin_pager"] $ do
+        prev <- lift $ toLocal "<"
+        next <- lift $ toLocal ">"
+        first <- lift $ toLocal "<<"
+        last <- lift $ toLocal ">>"
         let rQuery q = pack (BS.toString (renderQuery True q))
             pageQ d = rQuery (setPageQuery (page + d) query)
-        when (page > 0) $
-          a_ [href_ (pathText <> pageQ (-1))] "prev"
-        whenJust total $ \t ->
-          forM_ [0..(t - 1)] $ \p -> do
-            let sp = toHtml $ show (p + 1)
-            if page == p
-            then
-              span_ $ sp
-            else
-              a_ [href_ (pathText <> rQuery (setPageQuery p query))] sp
-        a_ [href_ (pathText <> pageQ 1)] "next"
+        case pager of
+          Total t -> do
+            when (page > 0 && t /= 0) $ do
+              a_ [href_ (pathText <> rQuery (setPageQuery 0 query))] $ toHtml first
+              a_ [href_ (pathText <> pageQ (-1))] $ toHtml prev
+            when (page - pagerScope > 0) $
+              span_ "..."
+            forM_ [0..(t - 1)] $ \p -> do
+              let sp = toHtml $ show (p + 1)
+              if page == p
+              then
+                span_ $ sp
+              else
+                when (page - pagerScope <= p && p <= page + pagerScope) $
+                  a_ [href_ (pathText <> rQuery (setPageQuery p query))] sp
+            when (page + pagerScope < t - 1) $
+              span_ "..."
+            when (t - 1 /= page && t /= 0) $ do
+              a_ [href_ (pathText <> pageQ 1)] $ toHtml next
+              a_ [href_ (pathText <> rQuery (setPageQuery (t-1) query))] $ toHtml last
+          Auto -> do
+            when (page > 0) $ do
+              a_ [href_ (pathText <> pageQ (-1))] $ toHtml prev
+              a_ [href_ (pathText <> pageQ 1)] $ toHtml next
+          None -> return ()
+
+pagerScope = 20
 
 setPageQuery page query =
   let p = ("page", Just $ BS.fromString $ show (page))
@@ -379,28 +443,38 @@ renderDetailHtml x = do
             dd_ [] field
 
 toCreateForm :: forall a b c d proxy m .
-  (Monad m, CreateConsole m a b, PathParam c d)
+  (Monad m, CreateConsole m a b, PathParam c d, MonadState Context m)
   => a
   -> proxy b
   -> (c, d)
   -> HtmlT m ()
 toCreateForm x _ (path, param) = do
-  detail <- lift $ toDetail x
-  form <- lift $ toForm (Just (upcast x :: b))
-  let pathText = toText $ renderPath path param
-  let r =
-        form_ [method_ "POST", action_ pathText] $ do
-          dl_ $ do
-            forM_ detail $ \(name, detailField) -> do
-              dt_ [] $
-                label_ [] (toHtml name)
-              dd_ [] $
-                fromMaybe (detailField) $ lookup name form
-            tr_ $
-              p_ [] "actions"
-            dd_ $
-              input_ [type_ "submit"]
-  createSublayout (Proxy :: Proxy b) x r
+  title <- lift $ detailTitle (Proxy :: Proxy a)
+  title' <- toLocal title
+  div_ [class_ ("_typed_admin_detail_" <> title)] $ pushH title $ do
+    h1_ [] $ toHtml $ title'
+    detail <- lift $ toDetail x
+    form <- lift $ toForm (Just (upcast x :: b))
+    let pathText = toText $ renderPath path param
+    let r =
+          form_ [method_ "POST", action_ pathText] $ do
+            dl_ $ do
+              forM_ detail $ \(name, detailField) -> do
+                name' <- toLocal name
+                let ffield = lookup name form
+                dt_ [class_ ("_typed_admin_label_" <> name)] $ do
+                  when (maybe True snd ffield) $ do
+                    label_ [] (toHtml name')
+                dd_ [class_ ("_typed_admin_field_" <> name)] $
+                  fromMaybe (detailField) $ fmap fst ffield
+              dt_ $ do
+                lblActions <- toLocal "actions"
+                p_ [] (toHtml lblActions)
+              dd_ $ do
+                lblSubmit <- toLocal "create"
+                input_ [type_ "submit", value_ lblSubmit]
+
+    createSublayout (Proxy :: Proxy b) x r
 
 renderEditHtml :: forall a b c d proxy m .
   (Monad m, EditConsole m a b, PathParam c d, MonadState Context m)
@@ -417,20 +491,23 @@ renderEditHtml x _ ident (path, param) = do
     detail <- lift $ toDetail x
     form <- lift $ toForm (Just (upcast x :: b))
     let pathText = toText $ renderPath path param
-    sublayout (Proxy :: Proxy b) x $ do
+    sublayout (Proxy :: Proxy b) x $ pushH title $ do
       form_ [method_ "POST", action_ pathText] $ do
         dl_ $ do
           forM_ detail $ \(name, detailField) -> do
-            dt_ [] $ do
-              name' <- toLocal name
-              label_ [] (toHtml name')
-            dd_ [] $
-              fromMaybe (detailField) $ lookup name form
-          tr_ $ do
+            let ffield = lookup name form
+            dt_ [class_ ("_typed_admin_label_" <> name)] $ do
+              when (maybe True snd ffield) $ do
+                name' <- toLocal name
+                label_ [] (toHtml name')
+            dd_ [class_ ("_typed_admin_field_" <> name)] $
+              fromMaybe (detailField) $ fmap fst ffield
+          dt_ $ do
             lblActions <- toLocal "actions"
             p_ [] (toHtml lblActions)
-          dd_ $
-            input_ [type_ "submit"]
+          dd_ $ do
+            lblSubmit <- toLocal "save"
+            input_ [type_ "submit", value_ lblSubmit]
 
 renderDeleteHtml :: forall a b c d proxy m .
   (Monad m, DeleteConsole m a, PathParam c d, MonadState Context m)
@@ -441,10 +518,22 @@ renderDeleteHtml :: forall a b c d proxy m .
 renderDeleteHtml ident x (path, param) = do
   form <- lift $ toForm (Just x)
   let pathText = toText $ renderPath path param
-  form_ [method_ "POST", action_ pathText] $ do
-    forM_ form snd
+  confirm <- lift $ toLocal "do_you_really_want_to_delete?"
+  form_ [ method_ "POST", action_ pathText
+        , onsubmit_ ("return confirm('" <> confirm <> "');")] $ do
+    forM_ form (fst . snd)
     lblSubmit <- toLocal "delete"
     input_ [type_ "submit", value_ lblSubmit]
+
+
+renderErrorHtml :: forall m .
+  (Monad m, MonadState Context m) => Text -> HtmlT m ()
+renderErrorHtml msg = do
+  title <- toLocal "error_occured"
+  back <- toLocal "back"
+  h1_ [] $ toHtml title
+  p_ [] $ toHtml msg
+  a_ [href_ "#", onclick_ "javascript:window.history.back(-1);return false;"] $ toHtml back
 
 -- instance (ToHtml c) => GToEditForm (K1 i c) where
 --   gToEditForm (K1 x) = do
